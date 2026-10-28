@@ -18,7 +18,7 @@ var cs = app.Configuration.GetConnectionString("Muro")
     ?? "Server=localhost\\SQLEXPRESS;Database=Muro;Integrated Security=true;TrustServerCertificate=true";
 var archivoEquipo = app.Configuration["EQUIPO_CONFIG"] ?? @"C:\muro\mi-equipo.json";
 var servidor = app.Configuration["SERVER_LABEL"] ?? Environment.MachineName;
-const string version = "Versión 1";
+const string version = "Versión 2";
 
 // Crea la tabla si no existe. Si falla, el sitio avisa en pantalla y sigue arrancando.
 string? errorInicio = null;
@@ -33,7 +33,12 @@ CREATE TABLE dbo.Mensajes (
     Nombre NVARCHAR(40)  NOT NULL,
     Texto  NVARCHAR(200) NOT NULL,
     Fecha  DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME()
-);", cn);
+);
+IF OBJECT_ID('dbo.Visitas') IS NULL
+BEGIN
+    CREATE TABLE dbo.Visitas (Id INT PRIMARY KEY, Total INT NOT NULL);
+    INSERT INTO dbo.Visitas (Id, Total) VALUES (1, 0);
+END", cn);
     await cmd.ExecuteNonQueryAsync();
 }
 catch (Exception ex)
@@ -87,10 +92,19 @@ app.MapGet("/", async () =>
     var (nombreEquipo, emoji, color) = LeerEquipo();
     var filas = new StringBuilder();
     string? error = errorInicio;
+    var visitas = 0;
     try
     {
         await using var cn = new SqlConnection(cs);
         await cn.OpenAsync();
+
+        // Novedad de la versión 2: cada visita se suma en la base de datos.
+        await using (var contar = new SqlCommand(
+            "UPDATE dbo.Visitas SET Total = Total + 1 OUTPUT inserted.Total WHERE Id = 1", cn))
+        {
+            visitas = Convert.ToInt32(await contar.ExecuteScalarAsync());
+        }
+
         await using var cmd = new SqlCommand(
             "SELECT TOP 20 Nombre, Texto, Fecha FROM dbo.Mensajes ORDER BY Id DESC", cn);
         await using var rd = await cmd.ExecuteReaderAsync();
@@ -126,7 +140,7 @@ app.MapGet("/", async () =>
  .err{{background:#3a1d28;border-radius:8px;padding:10px}}
 </style></head><body>
 <h1>{WebUtility.HtmlEncode(emoji)} {WebUtility.HtmlEncode(nombreEquipo)}</h1>
-<div class=srv>{version} &middot; Servidor: {WebUtility.HtmlEncode(servidor)}</div>
+<div class=srv>{version} &middot; Servidor: {WebUtility.HtmlEncode(servidor)} &middot; Visitas: {visitas}</div>
 {aviso}
 <form method=post action=/mensajes>
  <input name=nombre maxlength=40 placeholder='Tu nombre' required>
